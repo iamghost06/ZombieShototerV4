@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Zombie Shooter - Boss Wave Fix</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #eee; }
+  canvas { display: block; margin: auto; background: #ccc; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; }
+window.addEventListener('resize', resize); resize();
+
+const player = { x: W/2, y: H/2, speed: 3, hp: 100, maxHp: 100, weaponLevel: 1, angle: 0 };
+let bullets = [], enemies = [], wave = 1, score = 0, frameCount = 0, waveInProgress = false, bossPresent = false;
+let keys = {}, mousePos = { x: W/2, y: H/2 }, shooting = false;
+
+window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+canvas.addEventListener('mousemove', e => { mousePos.x = e.clientX; mousePos.y = e.clientY; });
+canvas.addEventListener('mousedown', e => { shooting = true; mousePos.x = e.clientX; mousePos.y = e.clientY; });
+canvas.addEventListener('mouseup', () => shooting = false);
+
+function drawStickman(x, y, angle=0) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, -15, 8, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.moveTo(0, -7);
+  ctx.lineTo(0, 15);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-12, 5);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(12, 5);
+  ctx.moveTo(0, 15);
+  ctx.lineTo(-8, 30);
+  ctx.moveTo(0, 15);
+  ctx.lineTo(8, 30);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawZombie(z) {
+  const x = z.x, y = z.y, s = 12 * z.scale;
+  ctx.fillStyle = z.boss ? '#4b2b4b' : '#3c7d3c';
+  ctx.fillRect(x, y + s * 0.8, s * 0.8, s * 1.5);
+  ctx.fillStyle = z.boss ? '#331933' : '#2a5d2a';
+  ctx.fillRect(x, y + s * 2.3, s * 0.8, s);
+  ctx.fillStyle = z.boss ? '#7d3f7d' : '#6aba6a';
+  ctx.fillRect(x, y, s * 0.8, s * 0.8);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x + s * 0.15, y + s * 0.25, s * 0.18, s * 0.18);
+  ctx.fillRect(x + s * 0.45, y + s * 0.25, s * 0.18, s * 0.18);
+  ctx.fillStyle = '#1b4e1b';
+  ctx.fillRect(x + s * 0.22, y + s * 0.3, s * 0.1, s * 0.1);
+  ctx.fillRect(x + s * 0.52, y + s * 0.3, s * 0.1, s * 0.1);
+  ctx.strokeStyle = 'black';
+  ctx.strokeRect(x, y, s * 0.8, s * 3.3);
+  if (z.boss) {
+    ctx.strokeStyle = 'purple';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x - 3, y - 3, s * 0.8 + 6, s * 3.3 + 6);
+  }
+}
+
+function shootBullet() {
+  const angle = Math.atan2(mousePos.y - player.y, mousePos.x - player.x);
+  const speed = 7 + player.weaponLevel * 2;
+  bullets.push({ x: player.x, y: player.y, dx: Math.cos(angle) * speed, dy: Math.sin(angle) * speed });
+}
+
+function spawnZombie() {
+  const z = { boss: false, scale: 1, hp: 10 + wave * 3, maxHp: 10 + wave * 3, speed: 1 + wave * 0.1 };
+  const side = Math.floor(Math.random() * 4);
+  if (side === 0) { z.x = Math.random() * W; z.y = -20; }
+  else if (side === 1) { z.x = Math.random() * W; z.y = H + 20; }
+  else if (side === 2) { z.x = -20; z.y = Math.random() * H; }
+  else { z.x = W + 20; z.y = Math.random() * H; }
+  enemies.push(z);
+}
+
+function spawnBoss() {
+  bossPresent = true;
+  const b = { boss: true, scale: 2, hp: 80 + wave * 40, maxHp: 80 + wave * 40, speed: 0.7 + wave * 0.05 };
+  b.x = W / 2 - 30; b.y = -100;
+  enemies.push(b);
+}
+
+function spawnWave() {
+  enemies = [];
+  bossPresent = false;
+
+  const isBossWave = wave % 5 === 0;
+
+  if (isBossWave) {
+    spawnBoss();
+  } else {
+    let count;
+    if (wave <= 10) {
+      count = 1 + (wave - 1) * 2;
+    } else {
+      count = 20 + (wave - 10) * 3;
+    }
+    for (let i = 0; i < count; i++) spawnZombie();
+  }
+
+  waveInProgress = true;
+}
+
+function update() {
+  let vx = 0, vy = 0;
+  if (keys['w']) vy -= 1;
+  if (keys['s']) vy += 1;
+  if (keys['a']) vx -= 1;
+  if (keys['d']) vx += 1;
+  const mag = Math.hypot(vx, vy);
+  if (mag > 0) { vx /= mag; vy /= mag; }
+  player.x += vx * player.speed; player.y += vy * player.speed;
+  player.x = Math.max(0, Math.min(player.x, W)); player.y = Math.max(0, Math.min(player.y, H));
+  player.angle = Math.atan2(mousePos.y - player.y, mousePos.x - player.x);
+
+  if (shooting && frameCount % Math.max(12 - player.weaponLevel * 2, 4) === 0) shootBullet();
+
+  bullets = bullets.filter(b => {
+    b.x += b.dx; b.y += b.dy;
+    if (b.x < 0 || b.x > W || b.y < 0 || b.y > H) return false;
+    for (let z of enemies) {
+      if (b.x > z.x && b.x < z.x + z.scale * 12 * 0.8 && b.y > z.y && b.y < z.y + z.scale * 12 * 3.3) {
+        z.hp -= 10 + player.weaponLevel * 5;
+        if (z.hp <= 0) {
+          if (z.boss) bossPresent = false;
+          enemies.splice(enemies.indexOf(z), 1);
+          score += z.boss ? 50 * wave : 10 * wave;
+        }
+        return false;
+      }
+    }
+    return true;
+  });
+
+  enemies.forEach(z => {
+    let dx = player.x - (z.x + z.scale * 12 * 0.4);
+    let dy = player.y - (z.y + z.scale * 12 * 1.65);
+    let d = Math.hypot(dx, dy);
+    if (d > 0) { z.x += dx / d * z.speed; z.y += dy / d * z.speed; }
+    if (player.x > z.x && player.x < z.x + z.scale * 12 * 0.8 && player.y > z.y && player.y < z.y + z.scale * 12 * 3.3) {
+      player.hp -= z.boss ? 1 : 0.5;
+    }
+  });
+
+  if (!waveInProgress) {
+    spawnWave();
+  } else if (enemies.length === 0 && !bossPresent) {
+    wave++;
+    waveInProgress = false;
+  }
+
+  frameCount++;
+}
+
+function drawBossBar() {
+  const boss = enemies.find(e => e.boss);
+  if (!boss) return;
+
+  const barWidth = W * 0.6;
+  const barHeight = 25;
+  const x = (W - barWidth) / 2;
+  const y = 40;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(x, y, barWidth, barHeight);
+  ctx.fillStyle = 'purple';
+  const hpPercent = boss.hp / boss.maxHp;
+  ctx.fillRect(x, y, barWidth * hpPercent, barHeight);
+
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, barWidth, barHeight);
+
+  ctx.fillStyle = 'white';
+  ctx.font = '16px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(`Boss HP`, x + barWidth / 2, y + barHeight - 6);
+}
+
+function draw() {
+  ctx.fillStyle = '#b0e0ff';
+  ctx.fillRect(0, 0, W, H);
+  drawStickman(player.x, player.y, player.angle);
+  enemies.forEach(drawZombie);
+  ctx.fillStyle = 'black';
+  bullets.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Health bar
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(20, 20, 200, 20);
+  ctx.fillStyle = 'red';
+  ctx.fillRect(20, 20, 200 * (player.hp / player.maxHp), 20);
+  ctx.fillStyle = 'white';
+  ctx.font = '14px Arial';
+  ctx.fillText(`HP: ${Math.floor(player.hp)}`, 25, 35);
+
+  // Score and wave
+  ctx.fillStyle = 'black';
+  ctx.font = '18px Arial';
+  ctx.textAlign = 'left';
+  ctx.fillText(`Score: ${score}`, W - 140, 30);
+  ctx.fillText(`Wave: ${wave}`, W - 140, 60);
+
+  // Boss HP bar
+  drawBossBar();
+}
+
+function loop() {
+  update();
+  draw();
+  if (player.hp > 0) requestAnimationFrame(loop);
+  else {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.font = '48px Arial';
+    ctx.fillText('GAME OVER', W / 2, H / 2);
+  }
+}
+loop();
+</script>
+</body>
+</html>
